@@ -12,13 +12,35 @@ static const char *TAG = "bus_t4";
 
 void BusT4Component::setup() {
   rxQueue_ = xQueueCreate(32, sizeof(T4Packet));
+  if (rxQueue_ == nullptr) {
+    ESP_LOGE(TAG, "Failed to create RX queue");
+    this->mark_failed();
+    return;
+  }
+
   txQueue_ = xQueueCreate(32, sizeof(T4Packet));
+  if (txQueue_ == nullptr) {
+    ESP_LOGE(TAG, "Failed to create TX queue");
+    vQueueDelete(rxQueue_);
+    rxQueue_ = nullptr;
+    this->mark_failed();
+    return;
+  }
 
   requestEvent_ = xEventGroupCreate();
   xEventGroupSetBits(requestEvent_, EB_REQUEST_FREE);
 
-  xTaskCreate(rxTaskThunk, "bus_t4_rx", 8192, this, 10, &rxTask_);
-  xTaskCreate(txTaskThunk, "bus_t4_tx", 8192, this, 10, &txTask_);
+  if (xTaskCreate(rxTaskThunk, "bus_t4_rx", 8192, this, 10, &rxTask_) != pdPASS) {
+    ESP_LOGE(TAG, "Failed to create RX task");
+    this->mark_failed();
+    return;
+  }
+
+  if (xTaskCreate(txTaskThunk, "bus_t4_tx", 8192, this, 10, &txTask_) != pdPASS) {
+    ESP_LOGE(TAG, "Failed to create TX task");
+    this->mark_failed();
+    return;
+  }
 }
 
 void BusT4Component::loop() {
