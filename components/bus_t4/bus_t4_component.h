@@ -8,6 +8,9 @@
 #include "esphome/components/uart/uart.h"
 #include "t4_packet.h"
 
+#include <driver/uart.h>
+#include "esphome/components/uart/uart_component_esp_idf.h"
+
 namespace esphome::bus_t4 {
 
 // Forward declaration
@@ -52,6 +55,10 @@ class BusT4Component final : public Component, public uart::UARTDevice {
   static void rxTaskThunk(void *self) { static_cast<BusT4Component *>(self)->rxTask(); }
   static void txTaskThunk(void *self) { static_cast<BusT4Component *>(self)->txTask(); }
 
+  // Send a BusT4 break signal (~1ms low pulse) before each packet.
+  // Temporarily lowers UART baud rate to produce the correct break duration.
+  void send_break();
+
   T4Source address_;
 
   TaskHandle_t rxTask_ = nullptr;
@@ -61,8 +68,11 @@ class BusT4Component final : public Component, public uart::UARTDevice {
   QueueHandle_t txQueue_ = nullptr;
 
   EventGroupHandle_t requestEvent_ = nullptr;
-  
+
   std::vector<BusT4Device *> devices_;
+
+  // Cached UART port for direct baud rate register writes during break signal.
+  uart_port_t uart_num_ = UART_NUM_MAX;
 };
 
 enum { EB_REQUEST_FREE = 1, EB_REQUEST_PENDING = 2, EB_REQUEST_COMPLETE = 4 };

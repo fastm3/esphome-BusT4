@@ -6,9 +6,15 @@
 
 #include "t4_packet.h"
 
+#include <esp_rom_sys.h>
+
 namespace esphome::bus_t4 {
 
 static const char *TAG = "bus_t4";
+
+// Break signal baud rate: sending 0x00 at 9200 baud produces a ~1ms low pulse
+// on a 19200 baud bus. Reference: pruwait/Nice_BusT4 nice-bust4.h
+static constexpr uint32_t T4_BAUD_BREAK = 9200;
 
 void BusT4Component::setup() {
   rxQueue_ = xQueueCreate(32, sizeof(T4Packet));
@@ -41,6 +47,10 @@ void BusT4Component::setup() {
     this->mark_failed();
     return;
   }
+
+  // Cache UART port number for direct baud rate changes during break signal.
+  auto *idf_uart = static_cast<uart::IDFUARTComponent *>(parent_);
+  uart_num_ = static_cast<uart_port_t>(idf_uart->get_hw_serial_number());
 }
 
 void BusT4Component::loop() {
@@ -169,7 +179,7 @@ void BusT4Component::txTask() {
       }
 
       ESP_LOGD(TAG, "Sending packet: %s", format_hex_pretty(packet.data, packet.size).c_str());
-      parent_->write_byte(T4_BREAK);
+      send_break();
       parent_->write_byte(T4_SYNC);
       parent_->write_byte(packet.size);
       parent_->write_array(packet.data, packet.size);
@@ -187,9 +197,27 @@ void BusT4Component::txTask() {
 void BusT4Component::write_raw(const uint8_t *data, size_t len) {
   // Send raw bytes directly to UART with break prefix
   // Used for debugging/testing with user-provided hex commands
-  parent_->write_byte(T4_BREAK);
+  send_break();
   parent_->write_array(data, len);
   parent_->flush();
+}
+
+void BusT4Component::send_break() {
+  // BusT4 protocol requires a break signal (~1ms low pulse) before each packet.
+  // Achieved by sending 0x00 at a lower baud rate (9200 instead of 19200).
+  // Reference: pruwait/Nice_BusT4 send_array_cmd() implementation.
+  if (uart_num_ < UART_NUM_MAX) {
+    uint32_t work_baud = parent_->get_baud_rate();
+    uart_set_baudrate(uart_num_, T4_BAUD_BREAK);
+    parent_->write_byte(T4_BREAK);
+    parent_->flush();
+    esp_rom_delay_us(100);
+    uart_set_baudrate(uart_num_, work_baud);
+  } else {
+    // UART port not cached — fall back to simple break byte
+    parent_->write_byte(T4_BREAK);
+    parent_->flush();
+  }
 }
 
 } // namespace esphome::bus_t4
