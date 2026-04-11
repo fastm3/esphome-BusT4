@@ -133,6 +133,16 @@ switch:
     turn_off_action:
       - lambda: id(gate).set_pre_flash(false);
 
+# Security lock using IT4WIFI device identity
+lock:
+  - platform: template
+    name: "Gate Lock"
+    optimistic: true
+    on_lock:
+      - lambda: 'id(gate).send_cmd(CMD_BLOCK, IT4WIFI);'
+    on_unlock:
+      - lambda: 'id(gate).send_cmd(CMD_RELEASE, IT4WIFI);'
+
 # Raw hex command input for debugging/testing
 # Enter hex string like "55.0C.00.FF..." or "550C00FF..." in Home Assistant
 text:

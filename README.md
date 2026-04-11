@@ -211,6 +211,32 @@ Use in lambdas with `id(gate).send_cmd(COMMAND)`:
 | `CMD_OPEN_PARTIAL_2` | Partial open position 2 |
 | `CMD_OPEN_PARTIAL_3` | Partial open position 3 |
 
+### Security Commands (Lock/Block)
+
+Security commands require the IT4WIFI device identity. Use `send_cmd(COMMAND, IT4WIFI)`:
+
+| Command | Description |
+|---------|-------------|
+| `CMD_BLOCK` | Lock the motor |
+| `CMD_RELEASE` | Unlock the motor |
+| `CMD_OPEN_AND_BLOCK` | Open gate, then lock |
+| `CMD_CLOSE_AND_BLOCK` | Close gate, then lock |
+| `CMD_RELEASE_AND_OPEN` | Unlock, then open |
+| `CMD_RELEASE_AND_CLOSE` | Unlock, then close |
+
+Example lock entity:
+
+```yaml
+lock:
+  - platform: template
+    name: "Gate Lock"
+    optimistic: true
+    on_lock:
+      - lambda: 'id(gate).send_cmd(CMD_BLOCK, IT4WIFI);'
+    on_unlock:
+      - lambda: 'id(gate).send_cmd(CMD_RELEASE, IT4WIFI);'
+```
+
 ### Motor Controller Configuration
 
 You can change motor controller settings via lambdas. These send SET commands to the controller:
@@ -260,6 +286,29 @@ switch:
       - lambda: id(gate).set_pre_flash(true);
     turn_off_action:
       - lambda: id(gate).set_pre_flash(false);
+```
+
+### Raw Configuration Parameters
+
+In addition to the named methods (`set_auto_close`, `set_standby`, etc.), you can set any controller parameter by its raw hex address using `send_config_set()`:
+
+```yaml
+number:
+  - platform: template
+    name: "Motor Force"
+    min_value: 0
+    max_value: 100
+    step: 5
+    set_action:
+      - lambda: 'id(gate).send_config_set(0x92, (uint8_t)x);'
+
+  - platform: template
+    name: "Pause Duration"
+    min_value: 0
+    max_value: 250
+    unit_of_measurement: "s"
+    set_action:
+      - lambda: 'id(gate).send_config_set(0x88, (uint8_t)x);'
 ```
 
 ### Raw Command for Debugging
