@@ -83,6 +83,11 @@ esp32:
   board: esp32dev
   framework:
     type: esp-idf
+    advanced:
+      # BiDi-WiFi uses ESP32 rev3.1 - reduces binary size by excluding legacy silicon workarounds.
+      # Safe to use with OTA: incompatible chips will reject the firmware and roll back automatically.
+      # Remove or adjust for custom ESP32 hardware with a different chip revision.
+      minimum_chip_revision: "3.1"
 
 logger:
   baud_rate: 0  # Disable serial logging (UART used for Bus-T4)
@@ -121,6 +126,8 @@ cover:
     name: "Gate"
     id: gate
 ```
+
+> **Note**: The `minimum_chip_revision: "3.1"` setting is specific to the Nice BiDi-WiFi module (ESP32 rev3.1). It reduces binary size by excluding legacy workaround code. Safe to use with OTA updates — if the chip revision doesn't match, ESPHome will reject the firmware and automatically roll back. Remove or adjust for custom ESP32 hardware. See [ESPHome ESP32 advanced configuration](https://esphome.io/components/esp32/#advanced-configuration) for details.
 
 #### Step 4: Flash and Connect
 
