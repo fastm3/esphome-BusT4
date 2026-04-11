@@ -26,14 +26,19 @@ class BusT4Device {
     parent->register_device(this);
   }
 
-  // Send a DEP control command (open/close/stop etc)
+  // Send a DEP control command as OVIEW device (default)
   void send_cmd(T4Command cmd);
+
+  // Send a DEP control command as a specific device type
+  // Use IT4WIFI for security commands (block/release)
+  void send_cmd(T4Command cmd, T4Device device);
 
   // Send a DMP info request (get status, position, etc)
   void send_info_request(T4Target target, T4InfoCommand command);
 
-  // Send a DMP config set (auto-close, etc)
-  void send_config_set(T4InfoCommand param, uint8_t value);
+  // Send a DMP config set command
+  // Accepts uint8_t to allow raw parameter values beyond the T4InfoCommand enum
+  void send_config_set(uint8_t param, uint8_t value);
 
   // Called by BusT4Component when a packet is received
   virtual void on_packet(const T4Packet &packet) {}
