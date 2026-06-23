@@ -106,7 +106,7 @@ void BusT4Cover::loop() {
     // Check if we've reached target position (always check, don't rate-limit)
     if (target_position_ >= 0.0f) {
       bool target_reached = false;
-      if (current_operation == cover::COVER_OPERATION_OPENING && this->position >= target_position_) {
+      if (current_operation == cover::COVER_OPERATION_OPENING && this->position >= target_position_ * 0.95) {
         target_reached = true;
       } else if (current_operation == cover::COVER_OPERATION_CLOSING && this->position <= target_position_) {
         target_reached = true;
