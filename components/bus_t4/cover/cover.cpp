@@ -53,8 +53,8 @@ void BusT4Cover::loop() {
       ESP_LOGV(TAG, "Periodic status refresh");
       request_status();
       // Also request position if we have encoder support
-      if (has_encoder_ && !is_robus_) {
-        request_position();
+      //if (has_encoder_ && !is_robus_) {
+      //  request_position();
       }
     }
   }
