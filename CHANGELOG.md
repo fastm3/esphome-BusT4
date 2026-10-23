@@ -4,6 +4,16 @@ All notable changes to this fork. The base is
 [`makstech/esphome-BusT4`](https://github.com/makstech/esphome-BusT4) v1.2.2;
 see [Releases](https://github.com/makstech/esphome-BusT4/releases) for the upstream history.
 
+## v1.3.1 — decode multi-byte register values behind a prefix
+
+- The `sensor` platform gains `offset` and `length`, so a value that sits behind
+  another field can be decoded as a big-endian integer. This is what the MC824H
+  deceleration zones need: `0x24`/`0x25` answer `[motor index] [2-byte value]`, which
+  `byte` alone could not express (`offset: 1` + `length: 2` gives the 800/1100 pulses
+  instead of the raw 3-byte blob).
+- `byte: N` remains available and is equivalent to `offset: N` with `length: 1`.
+- `example.yaml` now exercises both decoding paths, so CI compiles them.
+
 ## v1.3.0 — register sensors
 
 - New `sensor` platform: `platform: bus_t4` publishes a control-unit parameter as a

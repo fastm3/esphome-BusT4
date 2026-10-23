@@ -12,6 +12,8 @@ CONF_COVER_ID = 'cover_id'
 CONF_REGISTER = 'register'
 CONF_MOTOR = 'motor'
 CONF_BYTE = 'byte'
+CONF_OFFSET = 'offset'
+CONF_LENGTH = 'length'
 
 BusT4RegisterSensor = bus_t4_ns.class_(
     'BusT4RegisterSensor', sensor.Sensor, cg.PollingComponent
@@ -34,8 +36,15 @@ CONFIG_SCHEMA = (
             # Publish a single byte of the reply instead of the whole payload as
             # a big-endian integer. Several parameters have a layout that is not
             # established yet (0x4A/0x4B), so selecting a byte by position is the
-            # only safe way to expose them.
+            # only safe way to expose them. Equivalent to offset: N, length: 1.
             cv.Optional(CONF_BYTE): cv.int_range(min=0, max=15),
+            # Skip this many bytes of the reply before decoding, for parameters
+            # whose value is prefixed by another field: 0x24/0x25 answer
+            # [motor index] [2-byte value], so offset: 1 skips the index.
+            cv.Optional(CONF_OFFSET, default=0): cv.int_range(min=0, max=15),
+            # Number of bytes to combine, big-endian. 0 (default) means "to the
+            # end of the reply".
+            cv.Optional(CONF_LENGTH, default=0): cv.int_range(min=0, max=4),
         }
     )
 )
@@ -48,6 +57,8 @@ async def to_code(config):
     parent = await cg.get_variable(config[CONF_COVER_ID])
     cg.add(var.set_parent(parent))
     cg.add(var.set_register(config[CONF_REGISTER]))
+    cg.add(var.set_offset(config[CONF_OFFSET]))
+    cg.add(var.set_decoded_length(config[CONF_LENGTH]))
 
     if CONF_MOTOR in config:
         cg.add(var.set_motor(config[CONF_MOTOR]))

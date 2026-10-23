@@ -31,6 +31,9 @@ class BusT4RegisterSensor : public sensor::Sensor, public PollingComponent {
     this->byte_ = byte;
     this->has_byte_ = true;
   }
+  void set_offset(uint8_t offset) { this->offset_ = offset; }
+  // Number of bytes to combine, big-endian. 0 means "to the end of the reply".
+  void set_decoded_length(uint8_t length) { this->decoded_length_ = length; }
 
   uint8_t get_register() const { return this->register_; }
 
@@ -44,6 +47,8 @@ class BusT4RegisterSensor : public sensor::Sensor, public PollingComponent {
   bool has_motor_{false};
   uint8_t byte_{0};
   bool has_byte_{false};
+  uint8_t offset_{0};
+  uint8_t decoded_length_{0};
 };
 
 }  // namespace esphome::bus_t4

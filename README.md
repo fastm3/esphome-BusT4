@@ -390,25 +390,38 @@ sensor:
     byte: 1                 # publish this byte of the reply
     update_interval: 60s
 
+  # 0x24/0x25 answer [motor index] [2-byte value]: skip the index, combine 2 bytes
   - platform: bus_t4
     cover_id: gate
     name: "Deceleration zone, opening, motor 1"
     register: 0x24
     motor: 1                # motor index sent as the request argument
-    update_interval: 60s    # whole payload as a big-endian integer
+    offset: 1
+    length: 2
+    unit_of_measurement: "imp"
+    accuracy_decimals: 0
+
+  # single-byte parameter (speeds, times, function codes)
+  - platform: bus_t4
+    cover_id: gate
+    name: "Deceleration speed, opening"
+    register: 0x45
+    accuracy_decimals: 0
 ```
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `register` | hex | *Required* | Parameter address, e.g. `0x4A` |
 | `motor` | int | *unset* | Motor/encoder index sent as the request argument. Required by the MC824H for its per-motor parameters. |
-| `byte` | int | *unset* | Publish this byte of the reply (0-based) instead of the whole payload. Use it for parameters whose layout is not established, such as `0x4A`/`0x4B`. |
+| `byte` | int | *unset* | Publish this byte of the reply (0-based) instead of the whole payload. Use it for parameters whose layout is not established, such as `0x4A`/`0x4B`. Equivalent to `offset: N` + `length: 1`. |
+| `offset` | int | `0` | Skip this many bytes of the reply before decoding, for values that sit behind another field. |
+| `length` | int | `0` | Number of bytes to combine, big-endian (max 4). `0` means "to the end of the reply". |
 | `update_interval` | time | `60s` | How often the parameter is requested |
 
-Without `byte`, the whole payload is published as a big-endian integer (capped at 4
-bytes), so a reply of `01.03.20` becomes `66336`. That is exact but hard to read: prefer
-`byte` for two- and three-byte parameters until their layout is known, and see
-[docs/MC824H.md](docs/MC824H.md) for the addresses that have been measured on an MC824H.
+Without `byte`, `offset` or `length`, the whole payload is published as a big-endian
+integer, so a reply of `01.03.20` becomes `66336`. Prefer `offset`/`length` for the
+two- and three-byte parameters, and see [docs/MC824H.md](docs/MC824H.md) for the
+addresses that have been measured on an MC824H.
 
 ### Raw Command for Debugging
 

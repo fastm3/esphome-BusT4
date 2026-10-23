@@ -161,7 +161,8 @@ text:
 # Publish a control-unit parameter as a sensor.
 # `register` is the parameter address; `motor` adds the motor index as a request
 # argument (required by the MC824H for its per-motor parameters); `byte` publishes
-# a single byte of the reply instead of the whole big-endian value.
+# a single byte of the reply instead of the whole big-endian value, while
+# `offset`/`length` decode a multi-byte value that sits behind another field.
 # The MC824H reports the opening force on 0x4A and the closing force on 0x4B as
 # 2 bytes whose layout is not established, so one byte at a time is the only safe
 # way to expose them.
@@ -178,5 +179,25 @@ sensor:
     name: "Force closing (byte 0)"
     register: 0x4B
     byte: 0
+    update_interval: 60s
+
+  # 0x24/0x25 answer [motor index] [2-byte value]: skip the index, combine 2 bytes
+  - platform: bus_t4
+    cover_id: gate
+    name: "Deceleration zone, opening, motor 1"
+    register: 0x24
+    motor: 1
+    offset: 1
+    length: 2
+    unit_of_measurement: "imp"
+    accuracy_decimals: 0
+    update_interval: 60s
+
+  # single-byte parameter, no decoding needed
+  - platform: bus_t4
+    cover_id: gate
+    name: "Deceleration speed, opening"
+    register: 0x45
+    accuracy_decimals: 0
     update_interval: 60s
 
