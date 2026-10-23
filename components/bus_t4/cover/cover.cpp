@@ -1,4 +1,5 @@
 #include "cover.h"
+#include "../sensor/sensor.h"
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
 #include <cmath>
@@ -498,6 +499,14 @@ void BusT4Cover::parse_dmp_packet(const T4Packet &packet) {
     return;
   }
 
+  // Raw parameter readers first: their registers have no dedicated handler, and
+  // a register may legitimately be one the switch below does handle
+  for (auto *reader : this->register_readers_) {
+    if (reader != nullptr && reader->get_register() == command) {
+      reader->publish_reply(packet.data + DATA_OFFSET, payload_len);
+    }
+  }
+
   // Handle incomplete responses - request continuation with new offset
   // The sequence byte contains the next offset to request
   if (flags == RSP_GET_INCOMPLETE) {
@@ -967,6 +976,23 @@ void BusT4Cover::request_position() {
 void BusT4Cover::request_status() {
   if (parent_ == nullptr) return;
   send_info_request(FOR_CU, INF_STATUS);
+}
+
+void BusT4Cover::register_register_reader(BusT4RegisterSensor *reader) {
+  if (reader == nullptr) return;
+  this->register_readers_.push_back(reader);
+  ESP_LOGD(TAG, "Register reader attached for 0x%02X", reader->get_register());
+}
+
+void BusT4Cover::request_register(uint8_t reg, int8_t motor) {
+  if (parent_ == nullptr) return;
+  if (motor < 0) {
+    send_info_request(FOR_CU, static_cast<T4InfoCommand>(reg));
+    return;
+  }
+  // Per-motor parameter: the motor index travels as the request argument
+  const uint8_t args[1] = {static_cast<uint8_t>(motor)};
+  send_info_request(FOR_CU, static_cast<T4InfoCommand>(reg), args, 1);
 }
 
 void BusT4Cover::request_status_confirmation() {

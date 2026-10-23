@@ -376,6 +376,40 @@ payload, and pass the motor index as an argument when reading it:
 at `offset`. Multi-byte writes carry no range check: read the parameter back to confirm,
 and see [docs/MC824H.md](docs/MC824H.md) for what is known about each controller.
 
+### Register Sensors
+
+Reading a parameter through a lambda only writes it to the log. To get a Home Assistant
+entity, attach a `sensor` to the cover: it polls the register and publishes the reply.
+
+```yaml
+sensor:
+  - platform: bus_t4
+    cover_id: gate          # the bus_t4 cover that owns the bus conversation
+    name: "Force opening"
+    register: 0x4A          # parameter address
+    byte: 1                 # publish this byte of the reply
+    update_interval: 60s
+
+  - platform: bus_t4
+    cover_id: gate
+    name: "Deceleration zone, opening, motor 1"
+    register: 0x24
+    motor: 1                # motor index sent as the request argument
+    update_interval: 60s    # whole payload as a big-endian integer
+```
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `register` | hex | *Required* | Parameter address, e.g. `0x4A` |
+| `motor` | int | *unset* | Motor/encoder index sent as the request argument. Required by the MC824H for its per-motor parameters. |
+| `byte` | int | *unset* | Publish this byte of the reply (0-based) instead of the whole payload. Use it for parameters whose layout is not established, such as `0x4A`/`0x4B`. |
+| `update_interval` | time | `60s` | How often the parameter is requested |
+
+Without `byte`, the whole payload is published as a big-endian integer (capped at 4
+bytes), so a reply of `01.03.20` becomes `66336`. That is exact but hard to read: prefer
+`byte` for two- and three-byte parameters until their layout is known, and see
+[docs/MC824H.md](docs/MC824H.md) for the addresses that have been measured on an MC824H.
+
 ### Raw Command for Debugging
 
 For debugging and testing, you can send raw hex commands directly to the bus using `send_raw_cmd()`. This accepts hex strings in formats like `"55.0C.00.FF..."` or `"550C00FF..."` (dots/spaces are automatically stripped).

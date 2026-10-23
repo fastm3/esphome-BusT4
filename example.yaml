@@ -158,3 +158,25 @@ text:
               id(gate).send_raw_cmd(x);
             }
 
+# Publish a control-unit parameter as a sensor.
+# `register` is the parameter address; `motor` adds the motor index as a request
+# argument (required by the MC824H for its per-motor parameters); `byte` publishes
+# a single byte of the reply instead of the whole big-endian value.
+# The MC824H reports the opening force on 0x4A and the closing force on 0x4B as
+# 2 bytes whose layout is not established, so one byte at a time is the only safe
+# way to expose them.
+sensor:
+  - platform: bus_t4
+    cover_id: gate
+    name: "Force opening (byte 1)"
+    register: 0x4A
+    byte: 1
+    update_interval: 60s
+
+  - platform: bus_t4
+    cover_id: gate
+    name: "Force closing (byte 0)"
+    register: 0x4B
+    byte: 0
+    update_interval: 60s
+

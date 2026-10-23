@@ -4,6 +4,20 @@ All notable changes to this fork. The base is
 [`makstech/esphome-BusT4`](https://github.com/makstech/esphome-BusT4) v1.2.2;
 see [Releases](https://github.com/makstech/esphome-BusT4/releases) for the upstream history.
 
+## v1.3.0 — register sensors
+
+- New `sensor` platform: `platform: bus_t4` publishes a control-unit parameter as a
+  Home Assistant entity instead of only logging it. `register` selects the parameter
+  address, `motor` adds the motor index as a request argument (required by the MC824H
+  for its per-motor values), and `byte` publishes a single byte of the reply for the
+  parameters whose layout is not established — the MC824H forces `0x4A`/`0x4B`, for
+  example, answer two bytes in an order that is not yet documented.
+- `BusT4Cover::request_register(register, motor)` and
+  `BusT4Cover::register_register_reader()` expose that plumbing to the sensor platform;
+  the cover still owns the bus conversation and forwards each reply to the sensors
+  attached to that register.
+- `example.yaml` grows two register sensors so CI compiles the new platform.
+
 ## v1.2.4 — format-string fix in the OXI remote logging
 
 - `parse_oxi_packet()`: the two log lines that print a 32-bit remote serial

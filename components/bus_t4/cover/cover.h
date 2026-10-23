@@ -4,8 +4,11 @@
 #include "esphome/core/preferences.h"
 #include "../bus_t4.h"
 #include <string>
+#include <vector>
 
 namespace esphome::bus_t4 {
+
+class BusT4RegisterSensor;
 
 // Position update interval during movement (ms)
 static constexpr uint32_t POSITION_UPDATE_INTERVAL = 500;
@@ -88,6 +91,14 @@ class BusT4Cover : public cover::Cover, public BusT4Device, public Component {
   // Raw command for debugging/testing
   // Accepts hex string like "55.0C.00.FF..." or "550C00FF..."
   void send_raw_cmd(const std::string &data);
+
+  // Raw parameter (DMP register) readers - used by the bus_t4 sensor platform.
+  // The cover owns the bus conversation, so a sensor declares its register here
+  // and the reply is forwarded to it when it arrives.
+  void register_register_reader(BusT4RegisterSensor *reader);
+  // Request one parameter; motor < 0 sends no argument, otherwise the motor
+  // index goes in the request (required by the MC824H for per-motor values)
+  void request_register(uint8_t reg, int8_t motor);
 
  protected:
   void control(const cover::CoverCall &call) override;
@@ -182,6 +193,9 @@ class BusT4Cover : public cover::Cover, public BusT4Device, public Component {
   bool force_estimated_position_{false};  // Ignore encoder reports, always estimate from timing
   bool has_encoder_{false};          // True if device reports encoder positions
   uint32_t last_encoder_update_{0};  // Last time we got encoder data
+
+  // Raw parameter readers (bus_t4 sensor platform)
+  std::vector<BusT4RegisterSensor *> register_readers_;
 
   // State tracking for change detection
   cover::CoverOperation last_published_op_{cover::COVER_OPERATION_IDLE};
