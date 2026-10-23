@@ -30,10 +30,14 @@ jobs:
           cat > secrets.yaml << EOF
           wifi_ssid: "test_ssid"
           wifi_password: "test_password"
+          api_encryption_key: "C09PN1xjK/6ordteUZoxJDnfQMmqp2PZAm2otfCSfh4="
           EOF
 
       - name: Validate configuration
         run: esphome config example.yaml
+
+      - name: Validate the MC824H example
+        run: esphome config example-mc824h.yaml
 
   build:
     runs-on: ubuntu-latest

@@ -1,0 +1,222 @@
+# Nice MC824H / MC824HR - real-world configuration
+#
+# This is the setup the MC824H support was reverse-engineered on: a two-leaf 24 V
+# swing gate (Hyke kit) driven by an MC824H, through a BiDi-WiFi module running
+# this component. It shows what the component reads from the control unit and how
+# to publish those parameters in Home Assistant.
+#
+# It is an example, not a drop-in file: replace the secrets, check the UART pins
+# for your hardware, and read docs/MC824H.md before writing any parameter - some
+# of them move a motor.
+
+esphome:
+  name: gate
+  friendly_name: Gate
+  # The control unit keeps its own settings, so re-apply the chosen speeds after
+  # every boot to make the choice survive a power cycle.
+  # priority -100 runs last; the delay leaves the 8 init requests time to finish.
+  on_boot:
+    priority: -100
+    then:
+      - delay: 20s
+      - lambda: |-
+          id(gate).send_config_set(0x42, 6);   // travel speed, opening (1-6)
+          id(gate).send_config_set(0x43, 6);   // travel speed, closing (1-6)
+          id(gate).send_config_set(0x45, 8);   // deceleration speed, opening (1-8)
+          id(gate).send_config_set(0x46, 8);   // deceleration speed, closing (1-8)
+
+esp32:
+  board: esp32dev          # BiDi-WiFi module: ESP32-WROOM
+  framework:
+    type: esp-idf
+    advanced:
+      # The BiDi-WiFi module uses ESP32 rev3.1: drops the legacy workarounds.
+      # Safe with OTA - an incompatible chip rejects the firmware and rolls back.
+      minimum_chip_revision: "3.1"
+      # ESPHome 2026.10 reports both of these at boot. The first drops the flash
+      # vendor drivers this board does not need, the second gives +40 KB of IRAM
+      # because the installed bootloader supports using SRAM1 as IRAM.
+      flash_chip: generic
+      sram1_as_iram: true
+
+logger:
+  baud_rate: 0             # the UART belongs to the Bus-T4 bus
+  # DEBUG is enough for day-to-day use. VERBOSE is only needed to read raw
+  # register replies ("DMP payload (...)" lines); it costs RAM and CPU time.
+  level: DEBUG
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    # Reuses the API encryption key, so one key protects the device. A dedicated
+    # OTA password instead would cost flash and RAM (ESPHome warns about it).
+    encryption:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Gate Fallback"
+    password: "fallback123"
+
+# Without a captive portal the fallback AP serves no DNS and no page, which makes
+# it useless in the one situation it exists for (ESPHome warns about it at boot).
+captive_portal:
+
+external_components:
+  - source: components
+
+uart:
+  tx_pin: GPIO21           # BiDi-WiFi: GPIO21 = TX, GPIO18 = RX
+  rx_pin: GPIO18
+  baud_rate: 19200
+
+bus_t4:
+  id: bus
+
+cover:
+  - platform: bus_t4
+    name: "Gate"
+    id: gate
+    auto_learn_timing: true
+    open_duration: 28s     # measured on the reference unit; auto-learning refines it
+    close_duration: 50s
+    position_report_interval: 1s
+
+# --- control-unit parameters, published in Home Assistant --------------------
+#
+# One sensor per parameter. The reply to a read is the raw parameter value:
+#   motor:  encoder index sent as the request argument. The MC824H needs it for
+#           its per-motor parameters; without it the answer does not follow the
+#           gate (position) and per-motor values come back wrong.
+#   offset: skip this many bytes before decoding.
+#   length: how many bytes to combine, big-endian (0 = to the end of the reply).
+#   byte:   publish a single byte of the reply, for a layout that is not
+#           established yet.
+# The default update_interval is 60s.
+sensor:
+  # Deceleration zones: how long the gate spends at the low speed, counted in
+  # encoder pulses. Larger zone = longer slow phase. The reply here is
+  # [motor index] [2-byte value], hence offset 1 and length 2.
+  - platform: bus_t4
+    cover_id: gate
+    name: "Zone opening motor 0"
+    register: 0x24
+    motor: 0
+    offset: 1
+    length: 2
+    unit_of_measurement: "imp"
+    accuracy_decimals: 0
+
+  - platform: bus_t4
+    cover_id: gate
+    name: "Zone opening motor 1"
+    register: 0x24
+    motor: 1
+    offset: 1
+    length: 2
+    unit_of_measurement: "imp"
+    accuracy_decimals: 0
+
+  - platform: bus_t4
+    cover_id: gate
+    name: "Zone closing motor 0"
+    register: 0x25
+    motor: 0
+    offset: 1
+    length: 2
+    unit_of_measurement: "imp"
+    accuracy_decimals: 0
+
+  - platform: bus_t4
+    cover_id: gate
+    name: "Zone closing motor 1"
+    register: 0x25
+    motor: 1
+    offset: 1
+    length: 2
+    unit_of_measurement: "imp"
+    accuracy_decimals: 0
+
+  # Single-byte parameters: travel speeds (1-6) and deceleration speeds (1-8)
+  - platform: bus_t4
+    cover_id: gate
+    name: "Travel speed opening"
+    register: 0x42
+    accuracy_decimals: 0
+
+  - platform: bus_t4
+    cover_id: gate
+    name: "Travel speed closing"
+    register: 0x43
+    accuracy_decimals: 0
+
+  - platform: bus_t4
+    cover_id: gate
+    name: "Deceleration speed opening"
+    register: 0x45
+    accuracy_decimals: 0
+
+  - platform: bus_t4
+    cover_id: gate
+    name: "Deceleration speed closing"
+    register: 0x46
+    accuracy_decimals: 0
+
+  # Forces: two bytes whose layout is not established (0x4A answered 01.04 and
+  # 0x4B answered 08.00 on the reference unit), so publish one byte at a time.
+  # Add the same register twice with byte: 0 and byte: 1 to compare.
+  - platform: bus_t4
+    cover_id: gate
+    name: "Force opening"
+    register: 0x4A
+    byte: 1
+    accuracy_decimals: 0
+
+  - platform: bus_t4
+    cover_id: gate
+    name: "Force closing"
+    register: 0x4B
+    byte: 0
+    accuracy_decimals: 0
+
+# --- writing parameters ------------------------------------------------------
+#
+# Writing is a separate decision: read the parameter first, write, then read it
+# back. restore_mode ALWAYS_ON re-applies the value on every boot, which is what
+# makes a hand-tuned setting stick.
+switch:
+  - platform: template
+    name: "Fast speeds"
+    icon: "mdi:speedometer"
+    optimistic: true
+    restore_mode: ALWAYS_ON
+    turn_on_action:
+      - lambda: |-
+          id(gate).send_config_set(0x42, 6);
+          id(gate).send_config_set(0x43, 6);
+          id(gate).send_config_set(0x45, 8);
+          id(gate).send_config_set(0x46, 8);
+    turn_off_action:
+      - lambda: |-
+          id(gate).send_config_set(0x42, 4);
+          id(gate).send_config_set(0x43, 4);
+          id(gate).send_config_set(0x45, 5);
+          id(gate).send_config_set(0x46, 5);
+
+# --- commands ---------------------------------------------------------------
+button:
+  - platform: template
+    name: "Step-by-step"
+    icon: "mdi:gate"
+    on_press:
+      - lambda: id(gate).send_cmd(CMD_STEP);
+
+  - platform: template
+    name: "Partial open 1"
+    icon: "mdi:gate-arrow-right"
+    on_press:
+      - lambda: id(gate).send_cmd(CMD_OPEN_PARTIAL_1);

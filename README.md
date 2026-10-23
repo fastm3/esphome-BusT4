@@ -423,6 +423,10 @@ integer, so a reply of `01.03.20` becomes `66336`. Prefer `offset`/`length` for 
 two- and three-byte parameters, and see [docs/MC824H.md](docs/MC824H.md) for the
 addresses that have been measured on an MC824H.
 
+For a complete, real-world configuration - per-motor deceleration zones, speeds,
+forces, a speed switch and the boot-time writes - see
+[example-mc824h.yaml](example-mc824h.yaml).
+
 ### Raw Command for Debugging
 
 For debugging and testing, you can send raw hex commands directly to the bus using `send_raw_cmd()`. This accepts hex strings in formats like `"55.0C.00.FF..."` or `"550C00FF..."` (dots/spaces are automatically stripped).
