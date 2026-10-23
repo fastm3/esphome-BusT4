@@ -620,6 +620,10 @@ void BusT4Cover::parse_dmp_packet(const T4Packet &packet) {
       break;
     }
 
+    // The MC824H does not implement INF_POS_MIN: it reports the fully closed
+    // position through INF_MIN_CLS instead. The reply carries the motor index
+    // ahead of the 2-byte value, which read_position_value() strips.
+    case INF_MIN_CLS:
     case INF_POS_MIN: {
       // Programmed close position - the reference for 0%
       uint16_t pos;

@@ -21,7 +21,10 @@ their per-motor equivalents.
   (`send_config_set()` can only express one). Used for the deceleration zones
   `0x24`/`0x25`, whose value is `[motor index] [2-byte big-endian pulses]`.
 - `INF_MIN_CLS` (`0x13`) in `t4_packet.h`: the MC824H does not implement
-  `INF_POS_MIN`, it reports the fully closed position through this command.
+  `INF_POS_MIN`, it reports the fully closed position through this command. The
+  reply is decoded by the same branch as `INF_POS_MIN` (`case INF_MIN_CLS:` falls
+  through to it), and `read_position_value()` strips the motor-index byte that
+  prefixes the 2-byte value.
 - Automatic MC824H detection from the `INF_PRD` product name (`is_mc824h_`,
   reported as `Mode: MC824H` in the boot log). Other controllers keep the
   upstream behaviour.
