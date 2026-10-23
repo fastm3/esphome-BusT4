@@ -8,6 +8,29 @@ ESPHome component for integrating **Nice gate and garage door automation** into 
 
 > **Perfect for Nice BiDi-WiFi module owners** who want local control without cloud dependency!
 
+> [!IMPORTANT]
+> **This is a patched fork: [`fastm3/esphome-BusT4`](https://github.com/fastm3/esphome-BusT4)**, forked from
+> [`makstech/esphome-BusT4`](https://github.com/makstech/esphome-BusT4) at **v1.2.2**.
+> The patch is purely additive and adds **Nice MC824H / MC824HR support**:
+> position and per-motor parameters are requested with the motor index as an argument,
+> `INF_MIN_CLS` (`0x13`) is used instead of the absent `INF_POS_MIN`, and
+> `send_config_write()` writes parameters wider than one byte — the deceleration
+> zones `0x24`/`0x25` answer `[motor index] [2-byte value]`.
+> See [docs/MC824H.md](docs/MC824H.md) for the measured register map and
+> [CHANGELOG.md](CHANGELOG.md) for the exact diff against upstream v1.2.2.
+> Everything else is upstream, unmodified.
+
+Using this fork instead of upstream:
+
+```yaml
+external_components:
+  - source:
+      type: git
+      url: https://github.com/fastm3/esphome-BusT4
+      ref: v1          # newest v1.x from this fork, or v1.2.3 to pin the patch
+    components: [bus_t4]
+```
+
 ## Features
 
 - 🏠 **Home Assistant** - Native ESPHome integration
@@ -30,6 +53,7 @@ The [Nice BiDi-WiFi](https://www.niceforyou.com/uk/nicepost/bidi-wifi-new-pocket
 
 Tested with:
 - Nice Robus (RBS400, RBS600, RBS800, etc.)
+- **Nice MC824H** (two-motor 24 V swing control unit — see [docs/MC824H.md](docs/MC824H.md))
 
 Should work with:
 - Nice Walky (WLA1)
@@ -41,6 +65,7 @@ Should work with any Nice controller that has a Bus-T4 port.
 **Device-specific features:**
 - **Walky gates**: Uses 1-byte position values (auto-detected)
 - **Robus gates**: Position queries disabled during movement (auto-detected)
+- **MC824H**: Position and per-motor parameters are read with a motor-index argument, and its multi-byte parameters need `send_config_write()` (auto-detected)
 - **Road 400**: Alternate status codes supported (0x83/0x84)
 
 ## Quick Start
@@ -329,6 +354,28 @@ number:
       - lambda: 'id(gate).send_config_set(0x88, (uint8_t)x);'
 ```
 
+#### Multi-byte parameters
+
+Some parameters are wider than one byte: on an MC824H, for example, the deceleration
+zones answer `[motor index] [2-byte value]`. Use `send_config_write()` to write such a
+payload, and pass the motor index as an argument when reading it:
+
+```yaml
+# write 800 pulses as the opening deceleration zone of motor 1
+- lambda: |-
+    uint8_t v[3] = {0x01, 0x03, 0x20};
+    id(gate).send_config_write(0x24, v, 3);
+
+# read it back (the motor index is an argument of the request)
+- lambda: |-
+    const uint8_t args[1] = {1};
+    id(gate).send_info_request(FOR_CU, (T4InfoCommand) 0x24, args, 1);
+```
+
+`send_config_write(param, bytes, length, offset = 0x00)` writes `length` bytes starting
+at `offset`. Multi-byte writes carry no range check: read the parameter back to confirm,
+and see [docs/MC824H.md](docs/MC824H.md) for what is known about each controller.
+
 ### Raw Command for Debugging
 
 For debugging and testing, you can send raw hex commands directly to the bus using `send_raw_cmd()`. This accepts hex strings in formats like `"55.0C.00.FF..."` or `"550C00FF..."` (dots/spaces are automatically stripped).
@@ -400,6 +447,7 @@ During initialization, the component queries the controller for product informat
 |---------|------|------------------|
 | WLA1 (Walky) | `is_walky` | Uses 1-byte position values |
 | ROBUSHSR10 | `is_robus` | No position queries during movement |
+| MC824H | `is_mc824h` | Position and per-motor parameters need the motor index as an argument; `INF_MIN_CLS` is used instead of `INF_POS_MIN` (see [docs/MC824H.md](docs/MC824H.md)) |
 | Road 400 | Standard | Alternate status codes (0x83/0x84) |
 
 Device information (manufacturer, product, firmware) is logged at startup.
