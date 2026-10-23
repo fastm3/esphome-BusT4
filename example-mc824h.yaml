@@ -207,6 +207,46 @@ switch:
           id(gate).send_config_set(0x45, 5);
           id(gate).send_config_set(0x46, 5);
 
+# A multi-byte parameter is written with the same payload it answers with:
+# 0x4A/0x4B reply [motor index] [force], so the write sends both bytes, and the
+# parameter is read back straight away to confirm.
+#
+# The force is a SAFETY parameter: it is what lets the control unit detect an
+# obstacle. Raising it makes the gate push harder before it gives up, so change
+# one step at a time, with the gate at rest, and test with an obstacle after
+# every change. Nice documents 1-8 with 4 as the factory setting; the control
+# unit may clamp or reject a value, which is why every write is read back.
+number:
+  - platform: template
+    name: "Force opening motor 0 (write)"
+    icon: "mdi:arm-flex-outline"
+    optimistic: true
+    min_value: 1
+    max_value: 8
+    step: 1
+    initial_value: 4
+    restore_value: false
+    set_action:
+      - lambda: |-
+          uint8_t v[2] = {0x00, (uint8_t) x};   // motor 0, force
+          id(gate).send_config_write(0x4A, v, 2);
+          id(gate).request_register(0x4A, 0);   // read back immediately
+
+  - platform: template
+    name: "Force closing motor 0 (write)"
+    icon: "mdi:arm-flex-outline"
+    optimistic: true
+    min_value: 1
+    max_value: 8
+    step: 1
+    initial_value: 4
+    restore_value: false
+    set_action:
+      - lambda: |-
+          uint8_t v[2] = {0x00, (uint8_t) x};   // motor 0, force
+          id(gate).send_config_write(0x4B, v, 2);
+          id(gate).request_register(0x4B, 0);   // read back immediately
+
 # --- commands ---------------------------------------------------------------
 button:
   - platform: template
