@@ -166,9 +166,9 @@ sensor:
     register: 0x46
     accuracy_decimals: 0
 
-  # Forces: two bytes whose layout is not established (0x4A answered 01.04 and
-  # 0x4B answered 08.00 on the reference unit), so publish one byte at a time.
-  # Add the same register twice with byte: 0 and byte: 1 to compare.
+  # Forces: two bytes, and the first one looks like the motor index - 0x4A
+  # answered 00.04 and 01.04 across reads, 0x4B answered 01.04. The force itself
+  # is the second byte and reads 4 on the factory settings of both.
   - platform: bus_t4
     cover_id: gate
     name: "Force opening"
@@ -180,7 +180,7 @@ sensor:
     cover_id: gate
     name: "Force closing"
     register: 0x4B
-    byte: 0
+    byte: 1
     accuracy_decimals: 0
 
 # --- writing parameters ------------------------------------------------------

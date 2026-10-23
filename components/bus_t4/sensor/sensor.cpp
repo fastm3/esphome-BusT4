@@ -29,6 +29,15 @@ void BusT4RegisterSensor::publish_reply(const uint8_t *payload, uint8_t length) 
     return;
   }
 
+  // Every sensor listening on this register receives the reply, but a per-motor
+  // parameter answers with the motor index it is reporting as its first byte.
+  // Only the sensor that asked for that motor may publish it - otherwise two
+  // sensors for the same register alternate between both motors' values.
+  if (this->has_motor_ && length > 1 && payload[0] != this->motor_) {
+    ESP_LOGV(TAG, "Register 0x%02X: reply reports motor %u, not %u", this->register_, payload[0], this->motor_);
+    return;
+  }
+
   if (this->has_byte_) {
     if (this->byte_ >= length) {
       ESP_LOGW(TAG, "Register 0x%02X: byte %u requested but the reply carries %u byte(s)", this->register_,
@@ -71,7 +80,7 @@ void BusT4RegisterSensor::dump_config() {
   ESP_LOGCONFIG(TAG, "Bus T4 register sensor:");
   ESP_LOGCONFIG(TAG, "  Register: 0x%02X", this->register_);
   if (this->has_motor_) {
-    ESP_LOGCONFIG(TAG, "  Motor index: %u", this->motor_);
+    ESP_LOGCONFIG(TAG, "  Motor index: %u (reply must report the same index)", this->motor_);
   }
   if (this->has_byte_) {
     ESP_LOGCONFIG(TAG, "  Byte: %u", this->byte_);

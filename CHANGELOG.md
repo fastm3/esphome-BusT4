@@ -4,6 +4,19 @@ All notable changes to this fork. The base is
 [`makstech/esphome-BusT4`](https://github.com/makstech/esphome-BusT4) v1.2.2;
 see [Releases](https://github.com/makstech/esphome-BusT4/releases) for the upstream history.
 
+## v1.3.2 — per-motor replies no longer reach the wrong sensor
+
+Found on real traffic: the control unit answers a per-motor parameter with the motor index
+as its first byte, and `parse_dmp_packet` forwards the reply to *every* sensor attached to
+that register. Two sensors on `0x25` (`motor: 0` and `motor: 1`) therefore alternated
+between 1100 and 1300, each publishing whichever motor answered last.
+
+- A sensor with `motor` set now ignores a reply whose first byte reports a different
+  index, so each sensor keeps its own motor's value.
+- `docs/MC824H.md` and `example-mc824h.yaml` correct the force layout: measuring `0x4A`
+  and `0x4B` repeatedly shows `[motor index] [force]` on both, the force being the second
+  byte (4 on the factory settings), not the first.
+
 ## v1.3.1 — decode multi-byte register values behind a prefix
 
 - The `sensor` platform gains `offset` and `length`, so a value that sits behind
