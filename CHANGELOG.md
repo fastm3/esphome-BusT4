@@ -4,6 +4,16 @@ All notable changes to this fork. The base is
 [`makstech/esphome-BusT4`](https://github.com/makstech/esphome-BusT4) v1.2.2;
 see [Releases](https://github.com/makstech/esphome-BusT4/releases) for the upstream history.
 
+## v1.2.4 — format-string fix in the OXI remote logging
+
+- `parse_oxi_packet()`: the two log lines that print a 32-bit remote serial
+  (`Remote: serial=%08X` and `Button press: remote=%05X`) passed a `uint32_t`
+  to a `%X` conversion. On xtensa `uint32_t` is `unsigned long`, so both lines
+  emitted a `-Wformat=` warning on every build. The value is now cast to
+  `unsigned`, which matches the conversion on every target; the printed value is
+  unchanged.
+- No behaviour change: the MC824H work from v1.2.3 is untouched.
+
 ## v1.2.3 — Nice MC824H / MC824HR support
 
 Fork of upstream **v1.2.2**. The patch is purely additive: no upstream line is

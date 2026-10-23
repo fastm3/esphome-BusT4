@@ -822,7 +822,7 @@ void BusT4Cover::parse_oxi_packet(const T4Packet &packet) {
     uint8_t press_count = payload[6];
 
     ESP_LOGI(TAG, "Remote: serial=%08X, cmd=%d, btn=%d, mode=%d, presses=%d",
-             remote_serial, remote_command, remote_button, remote_mode, press_count);
+             (unsigned) remote_serial, remote_command, remote_button, remote_mode, press_count);
   }
 
   // Button read packet (0x26, 0x41)
@@ -831,7 +831,7 @@ void BusT4Cover::parse_oxi_packet(const T4Packet &packet) {
     uint8_t button = payload[0] >> 4;  // High nibble
     uint32_t remote_serial = (payload[0] & 0x0F) | (payload[1] << 4) | (payload[2] << 12) | (payload[3] << 20);
 
-    ESP_LOGI(TAG, "Button press: btn=%d, remote=%05X", button, remote_serial);
+    ESP_LOGI(TAG, "Button press: btn=%d, remote=%05X", button, (unsigned) remote_serial);
   }
 }
 
