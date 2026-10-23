@@ -4,6 +4,21 @@ All notable changes to this fork. The base is
 [`makstech/esphome-BusT4`](https://github.com/makstech/esphome-BusT4) v1.2.2;
 see [Releases](https://github.com/makstech/esphome-BusT4/releases) for the upstream history.
 
+## v1.3.3 — the previous manoeuvre's acknowledgement is not the end of this one
+
+On an MC824H a command is answered ~50 ms later by a DEP status of `STA_ENDTIME` (`0x06`,
+"manoeuvre ended by timeout") that describes the *previous* run; only 3-4 s later does the
+controller report `STA_OPENING` / `STA_CLOSING`. The component took the first packet for
+the end of the movement, so the cover published IDLE with a clamped position (5 % / 95 %)
+and asked for a status confirmation in between - two state changes per order, and the
+reason automations carry a `for:` debounce.
+
+- `BusT4Cover` now tracks when a command was sent and whether the movement it asked for
+  has been reported as started. `STA_ENDTIME` is ignored until then, with a 5 s guard so a
+  manoeuvre that never starts still falls back to the old behaviour. `send_cmd()` is
+  overridden on the cover, so the YAML buttons, the lock and `control()` are all covered.
+- The cover no longer flickers to IDLE with a stale position right after an order.
+
 ## v1.3.2 — per-motor replies no longer reach the wrong sensor
 
 Found on real traffic: the control unit answers a per-motor parameter with the motor index

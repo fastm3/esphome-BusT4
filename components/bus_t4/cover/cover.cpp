@@ -241,6 +241,14 @@ void BusT4Cover::control(const cover::CoverCall &call) {
   }
 }
 
+void BusT4Cover::send_cmd(T4Command cmd) { send_cmd(cmd, OVIEW); }
+
+void BusT4Cover::send_cmd(T4Command cmd, T4Device device) {
+  this->last_command_time_ = millis();
+  this->awaiting_movement_start_ = true;
+  BusT4Device::send_cmd(cmd, device);
+}
+
 void BusT4Cover::on_packet(const T4Packet &packet) {
   // Check if this is an OXI receiver packet (remote control)
   // These packets have target FOR_OXI (0x0A) in byte 9
@@ -297,6 +305,7 @@ void BusT4Cover::parse_dep_packet(const T4Packet &packet) {
       case STA_OPENING:
       case STA_OPENING_ALT:  // Alternate code used by Road 400 and others
         ESP_LOGI(TAG, "Gate opening");
+        awaiting_movement_start_ = false;
         if (current_operation != cover::COVER_OPERATION_OPENING) {
           movement_start_time_ = millis();
           position_at_start_ = this->position;
@@ -311,6 +320,7 @@ void BusT4Cover::parse_dep_packet(const T4Packet &packet) {
       case STA_CLOSING:
       case STA_CLOSING_ALT:  // Alternate code used by Road 400 and others
         ESP_LOGI(TAG, "Gate closing");
+        awaiting_movement_start_ = false;
         if (current_operation != cover::COVER_OPERATION_CLOSING) {
           movement_start_time_ = millis();
           position_at_start_ = this->position;
@@ -324,6 +334,7 @@ void BusT4Cover::parse_dep_packet(const T4Packet &packet) {
 
       case STA_OPENED:
         ESP_LOGI(TAG, "Gate fully open");
+        awaiting_movement_start_ = false;
         learn_open_position();
         // Finish learning open duration if we were learning
         if (learning_open_) {
@@ -338,6 +349,7 @@ void BusT4Cover::parse_dep_packet(const T4Packet &packet) {
 
       case STA_CLOSED:
         ESP_LOGI(TAG, "Gate fully closed");
+        awaiting_movement_start_ = false;
         // Finish learning close duration if we were learning
         if (learning_close_) {
           finish_learning_close();
@@ -371,6 +383,18 @@ void BusT4Cover::parse_dep_packet(const T4Packet &packet) {
         break;  // Publish now with clamped position, update when confirmed
 
       case STA_ENDTIME:
+        // The control unit answers a command with STA_ENDTIME, which describes
+        // the *previous* manoeuvre rather than the one just requested. Taking it
+        // as the end published IDLE with a stale position for the few seconds
+        // the controller needs to report OPENING/CLOSING. The window closes as
+        // soon as that status arrives, with COMMAND_START_TIMEOUT as a guard for
+        // a manoeuvre that never starts.
+        if (awaiting_movement_start_ && (millis() - last_command_time_ < COMMAND_START_TIMEOUT)) {
+          ESP_LOGD(TAG, "Ignoring STA_ENDTIME %lu ms after a command (acknowledges the previous run)",
+                   (unsigned long) (millis() - last_command_time_));
+          break;
+        }
+        awaiting_movement_start_ = false;
         ESP_LOGI(TAG, "Gate operation ended (timeout)");
         cancel_learning();  // Timeout, can't learn
         last_operation_ = current_operation;

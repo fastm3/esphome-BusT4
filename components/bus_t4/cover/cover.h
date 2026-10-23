@@ -28,6 +28,12 @@ static constexpr float LEARNING_DEVIATION_THRESHOLD = 0.10f;
 // Discovery rounds to wait for a device type 0x04 answer before trusting the address
 static constexpr uint8_t DISCOVERY_TYPE_ATTEMPTS = 3;
 
+// Upper bound on how long a commanded manoeuvre may take to be reported as
+// started. A control unit answers a command with STA_ENDTIME, describing the
+// *previous* run, so that status has to be ignored until the run we asked for
+// is announced - but not forever, in case it never starts.
+static constexpr uint32_t COMMAND_START_TIMEOUT = 5000;
+
 // Reported by controllers for a position they do not know
 static constexpr uint16_t POSITION_UNKNOWN = 0xFFFF;
 
@@ -99,6 +105,13 @@ class BusT4Cover : public cover::Cover, public BusT4Device, public Component {
   // Request one parameter; motor < 0 sends no argument, otherwise the motor
   // index goes in the request (required by the MC824H for per-motor values)
   void request_register(uint8_t reg, int8_t motor);
+
+  // Commands, tracked so the acknowledgement of the previous manoeuvre is not
+  // mistaken for the end of the one just requested (see STA_ENDTIME handling).
+  // These hide the BusT4Device overloads on purpose: every caller - control(),
+  // the YAML buttons and the lock - goes through them.
+  void send_cmd(T4Command cmd);
+  void send_cmd(T4Command cmd, T4Device device);
 
  protected:
   void control(const cover::CoverCall &call) override;
@@ -196,6 +209,11 @@ class BusT4Cover : public cover::Cover, public BusT4Device, public Component {
 
   // Raw parameter readers (bus_t4 sensor platform)
   std::vector<BusT4RegisterSensor *> register_readers_;
+
+  // Command tracking: a command was sent and the controller has not yet
+  // reported the matching OPENING/CLOSING status
+  uint32_t last_command_time_{0};
+  bool awaiting_movement_start_{false};
 
   // State tracking for change detection
   cover::CoverOperation last_published_op_{cover::COVER_OPERATION_IDLE};
