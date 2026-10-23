@@ -40,6 +40,11 @@ struct LearnedDurations {
 static const std::string PRODUCT_WALKY = "WLA";
 // Products starting with ROB = Robus family (no position query during movement)
 static const std::string PRODUCT_ROBUS = "ROB";
+// Products starting with MC824H = two-motor 24V swing control unit. Its position
+// and other per-motor parameters (e.g. the deceleration zones) are only answered
+// when the request carries the motor index as an argument, and it does not
+// support INF_POS_MIN (INF_MIN_CLS is used instead).
+static const std::string PRODUCT_MC824H = "MC824H";
 
 class BusT4Cover : public cover::Cover, public BusT4Device, public Component {
  public:
@@ -130,6 +135,7 @@ class BusT4Cover : public cover::Cover, public BusT4Device, public Component {
   std::string firmware_version_;       // Firmware version string
   bool is_walky_{false};               // Walky gates: 1-byte position values
   bool is_robus_{false};               // Robus gates: no position query during movement
+  bool is_mc824h_{false};              // MC824H: position and per-motor parameters need a motor argument
 
   // OXI receiver tracking
   T4Source oxi_address_{0x00, 0x00};   // OXI receiver address (if present)

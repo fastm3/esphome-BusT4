@@ -36,9 +36,23 @@ class BusT4Device {
   // Send a DMP info request (get status, position, etc)
   void send_info_request(T4Target target, T4InfoCommand command);
 
+  // Send a DMP info request carrying argument bytes.
+  // Some control units require an argument - e.g. the MC824H needs the motor
+  // index for position and other per-motor parameters; without it the answer
+  // does not follow the gate.
+  // Frame: [target] [command] [REQ_GET] [offset] [length] [args...]
+  void send_info_request(T4Target target, T4InfoCommand command, const uint8_t *args, size_t args_size);
+
   // Send a DMP config set command
   // Accepts uint8_t to allow raw parameter values beyond the T4InfoCommand enum
   void send_config_set(uint8_t param, uint8_t value);
+
+  // Send a DMP config set command with an arbitrary payload length.
+  // Needed for parameters wider than one byte (e.g. the MC824H deceleration
+  // zones 0x24/0x25, whose replies are [motor index] [2-byte value]).
+  // Frame: [target] [param] [REQ_SET] [offset] [length] [bytes...]
+  // "length" is the number of bytes written, starting at "offset".
+  void send_config_write(uint8_t param, const uint8_t *bytes, size_t length, uint8_t offset = 0x00);
 
   // Called by BusT4Component when a packet is received
   virtual void on_packet(const T4Packet &packet) {}

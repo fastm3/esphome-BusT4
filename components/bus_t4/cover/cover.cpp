@@ -175,6 +175,9 @@ void BusT4Cover::dump_config() {
     if (is_robus_) {
       ESP_LOGCONFIG(TAG, "  Mode: Robus (no position query during movement)");
     }
+    if (is_mc824h_) {
+      ESP_LOGCONFIG(TAG, "  Mode: MC824H (per-motor parameters use a motor argument)");
+    }
 
     // Position tracking mode
     if (force_estimated_position_) {
@@ -742,6 +745,10 @@ void BusT4Cover::parse_dmp_packet(const T4Packet &packet) {
             is_robus_ = true;
             ESP_LOGI(TAG, "Detected Robus device - position queries disabled during movement");
           }
+          if (product_name_.find(PRODUCT_MC824H) == 0) {
+            is_mc824h_ = true;
+            ESP_LOGI(TAG, "Detected MC824H device - per-motor parameters use a motor argument");
+          }
         }
       }
       break;
@@ -872,15 +879,29 @@ void BusT4Cover::init_device() {
     case 5:
       // Step 5: Request open/close positions
       ESP_LOGD(TAG, "Init step 5: requesting position limits");
-      send_info_request(FOR_CU, INF_POS_MAX);
-      send_info_request(FOR_CU, INF_POS_MIN);
+      if (is_mc824h_) {
+        // The MC824H answers these per motor and only when the motor index is
+        // passed as an argument; it does not support INF_POS_MIN (INF_MIN_CLS
+        // is used for the fully closed position instead).
+        const uint8_t args[1] = {1};
+        send_info_request(FOR_CU, INF_POS_MAX, args, 1);
+        send_info_request(FOR_CU, INF_MIN_CLS, args, 1);
+      } else {
+        send_info_request(FOR_CU, INF_POS_MAX);
+        send_info_request(FOR_CU, INF_POS_MIN);
+      }
       init_step_ = 6;
       break;
 
     case 6:
       // Step 6: Request max encoder position
       ESP_LOGD(TAG, "Init step 6: requesting max encoder position");
-      send_info_request(FOR_CU, INF_MAX_OPN);
+      if (is_mc824h_) {
+        const uint8_t args[1] = {1};
+        send_info_request(FOR_CU, INF_MAX_OPN, args, 1);
+      } else {
+        send_info_request(FOR_CU, INF_MAX_OPN);
+      }
       init_step_ = 7;
       break;
 
@@ -928,7 +949,15 @@ void BusT4Cover::init_oxi_device() {
 
 void BusT4Cover::request_position() {
   if (parent_ == nullptr || force_estimated_position_) return;
-  send_info_request(FOR_CU, INF_CUR_POS);
+  if (is_mc824h_) {
+    // Without the motor index the MC824H answers with a value that does not
+    // follow the gate (observed: a constant 1 for the whole manoeuvre), which
+    // leaves the cover position stuck.
+    const uint8_t args[1] = {1};
+    send_info_request(FOR_CU, INF_CUR_POS, args, 1);
+  } else {
+    send_info_request(FOR_CU, INF_CUR_POS);
+  }
 }
 
 void BusT4Cover::request_status() {
