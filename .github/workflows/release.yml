@@ -1,0 +1,52 @@
+name: Release
+
+# A git tag is only a ref: the entry on the Releases page is a separate API object,
+# so tagging alone leaves /releases empty. This workflow creates it from the
+# token every Actions run already gets, which means publishing a release needs no
+# personal access token anywhere.
+#
+# Notes for a tag come from docs/release-notes/<tag>.md when that file exists,
+# otherwise GitHub generates them from the commits since the previous tag.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+
+          # `v` is a moving tag that follows the latest compatible commit: it must
+          # never own a release, otherwise it would collect every version's notes.
+          if [ "$tag" = "v" ]; then
+            echo "moving tag $tag: no release for it"
+            exit 0
+          fi
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "release $tag already exists, nothing to do"
+            exit 0
+          fi
+
+          notes="docs/release-notes/${tag}.md"
+          if [ -f "$notes" ]; then
+            echo "using curated notes: $notes"
+            gh release create "$tag" --title "$tag" --notes-file "$notes" --verify-tag
+          else
+            echo "no curated notes, letting GitHub generate them"
+            gh release create "$tag" --title "$tag" --generate-notes --verify-tag
+          fi
