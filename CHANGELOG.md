@@ -4,6 +4,29 @@ All notable changes to this fork. The base is
 [`makstech/esphome-BusT4`](https://github.com/makstech/esphome-BusT4) v1.2.2;
 see [Releases](https://github.com/makstech/esphome-BusT4/releases) for the upstream history.
 
+## v1.3.5 — dropped frames at boot, and an encoder that could be missed for good
+
+Both were exposed by the counters added in v1.3.4, on the first boot that had them: the device
+reported six lost frames and `Position source: Time-based estimation` while the controller was
+answering normally.
+
+- **The boot burst overflowed the transmit queue.** The cover init steps, every register
+  sensor's first poll and the restored template numbers all queue within a second, while the bus
+  drains one frame per ~200 ms. Every send path called `write(&packet, 0)`, i.e. never waited,
+  so past the queue depth the frame was dropped - six of them on the reference unit. The queue
+  is now 64 deep and a send waits up to 30 ms for a slot.
+- **A missed position reply disabled encoder tracking until the next manoeuvre.** The periodic
+  refresh asked for the position only when `has_encoder_` was already true, and the init
+  sequence never requested the current position at all. One lost reply at boot therefore left
+  the cover on time-based estimation indefinitely: nothing else would ever ask again. The init
+  now requests the position, and the periodic refresh no longer gates it on prior detection.
+- **Drop counters are split by cause**: `get_tx_dropped()` (queue full) and
+  `get_tx_not_ready()` (sent before the bus component's setup created the queues). Every send
+  path, discovery and the identity requests included, goes through the same accounting.
+- **`Encoder support detected (position N)` is logged** when the encoder is first seen.
+  `dump_config` prints the position source at boot, before any reply can have arrived, so that
+  line alone could not distinguish an encoder controller from a time-based one.
+
 ## v1.3.4 — the parser can no longer deadlock the bus
 
 Reported by another fork on a Robus RBS600, then confirmed here: the transmit path only runs

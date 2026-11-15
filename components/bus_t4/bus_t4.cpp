@@ -5,19 +5,31 @@
 namespace esphome::bus_t4 {
 
 bool BusT4Device::queue_packet_(T4Packet *packet) {
-  if (this->write(packet, 0)) {
+  // All of this runs in the main loop, so the wait below stays bounded. Waiting a little is
+  // what keeps a burst - boot, or a script writing several parameters - from losing frames:
+  // with a zero-tick wait the queue simply overflowed.
+  static constexpr TickType_t TX_QUEUE_WAIT = pdMS_TO_TICKS(30);
+
+  if (this->write(packet, TX_QUEUE_WAIT)) {
     this->parent_->count_tx_frame();
     return true;
   }
 
-  // The transmit queue is bounded (32 frames) and the wait above is zero ticks: when the bus
-  // task cannot drain it - typically because the parser is not in WAIT_SYNC and therefore
-  // never transmits - the frame is lost. Saying so is the whole point: silently dropping it
-  // is what makes "the gate ignores my commands" impossible to diagnose.
+  if (!this->parent_->is_ready()) {
+    // The bus component's setup() has not created the queues yet: a device that sends during
+    // its own setup() used to have its frame vanish with nothing in the log.
+    this->parent_->count_tx_not_ready();
+    ESP_LOGW("bus_t4", "Bus not ready yet, dropped a frame for 0x%02X.%02X (command 0x%02X)",
+             this->target_address_.address, this->target_address_.endpoint,
+             (unsigned) packet->message.command);
+    return false;
+  }
+
   this->parent_->count_tx_dropped();
-  ESP_LOGW("bus_t4", "TX queue full, dropped a frame for 0x%02X.%02X (protocol %u, command 0x%02X)",
-           this->target_address_.address, this->target_address_.endpoint,
-           (unsigned) packet->header.protocol, (unsigned) packet->message.command);
+  ESP_LOGW("bus_t4", "TX queue full after %ums, dropped a frame for 0x%02X.%02X (protocol %u, command 0x%02X)",
+           (unsigned) pdTICKS_TO_MS(TX_QUEUE_WAIT), this->target_address_.address,
+           this->target_address_.endpoint, (unsigned) packet->header.protocol,
+           (unsigned) packet->message.command);
   return false;
 }
 

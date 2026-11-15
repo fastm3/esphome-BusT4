@@ -60,8 +60,11 @@ void BusT4Cover::loop() {
     if (current_operation == cover::COVER_OPERATION_IDLE) {
       ESP_LOGV(TAG, "Periodic status refresh");
       request_status();
-      // Also request position if we have encoder support
-      if (has_encoder_ && !is_robus_) {
+      // Ask for the position even before the encoder has been seen. Gating this on
+      // has_encoder_ made a single missed reply at boot disable encoder tracking until the
+      // next manoeuvre, because nothing else would ever ask for the position again - the
+      // cover then stayed on time-based estimation for days.
+      if (!is_robus_) {
         request_position();
       }
     }
@@ -539,7 +542,7 @@ void BusT4Cover::parse_dmp_packet(const T4Packet &packet) {
     // Build continuation request with the next offset
     uint8_t cont_msg[5] = { device, command, REQ_GET, sequence, 0x00 };
     T4Packet cont_packet(target_address_, parent_->get_address(), DMP, cont_msg, sizeof(cont_msg));
-    write(&cont_packet, 0);
+    queue_packet_(&cont_packet);
     // Still process the partial data we received
   }
 
@@ -881,7 +884,7 @@ void BusT4Cover::init_device() {
       T4Source broadcast{0xFF, 0xFF};
       uint8_t who_msg[5] = { FOR_ALL, INF_WHO, REQ_GET, 0x00, 0x00 };
       T4Packet who_packet(broadcast, parent_->get_address(), DMP, who_msg, sizeof(who_msg));
-      write(&who_packet, 0);
+      queue_packet_(&who_packet);
       break;
     }
 
@@ -943,9 +946,13 @@ void BusT4Cover::init_device() {
       break;
 
     case 7:
-      // Step 7: Request status
-      ESP_LOGD(TAG, "Init step 7: requesting status");
+      // Step 7: Request status and the current position.
+      // The position is what tells us the control unit has an encoder, so it has to be asked
+      // here rather than waited for: a boot that never asks stays on time-based estimation
+      // until the gate happens to move.
+      ESP_LOGD(TAG, "Init step 7: requesting status and position");
       send_info_request(FOR_CU, INF_STATUS);
+      request_position();
       init_step_ = 8;
       break;
 
@@ -973,15 +980,15 @@ void BusT4Cover::init_oxi_device() {
   // Build packets targeting the OXI address
   uint8_t prd_msg[5] = { FOR_ALL, INF_PRD, REQ_GET, 0x00, 0x00 };
   T4Packet prd_packet(oxi_address_, parent_->get_address(), DMP, prd_msg, sizeof(prd_msg));
-  write(&prd_packet, 0);
+  queue_packet_(&prd_packet);
 
   uint8_t hwr_msg[5] = { FOR_ALL, INF_HWR, REQ_GET, 0x00, 0x00 };
   T4Packet hwr_packet(oxi_address_, parent_->get_address(), DMP, hwr_msg, sizeof(hwr_msg));
-  write(&hwr_packet, 0);
+  queue_packet_(&hwr_packet);
 
   uint8_t frm_msg[5] = { FOR_ALL, INF_FRM, REQ_GET, 0x00, 0x00 };
   T4Packet frm_packet(oxi_address_, parent_->get_address(), DMP, frm_msg, sizeof(frm_msg));
-  write(&frm_packet, 0);
+  queue_packet_(&frm_packet);
 }
 
 void BusT4Cover::request_position() {
@@ -1043,6 +1050,12 @@ void BusT4Cover::update_position(uint16_t encoder_pos) {
   }
 
   // Mark that we have encoder support and update timestamp
+  if (!has_encoder_) {
+    // Say it when it happens: `dump_config` prints the position source at boot, before any
+    // reply could have arrived, so the boot line alone cannot tell an encoder controller from
+    // a time-based one.
+    ESP_LOGI(TAG, "Encoder support detected (position %d), tracking from the encoder", encoder_pos);
+  }
   has_encoder_ = true;
   last_encoder_update_ = millis();
 

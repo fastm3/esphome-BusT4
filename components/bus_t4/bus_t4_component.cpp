@@ -13,7 +13,7 @@ namespace esphome::bus_t4 {
 static const char *TAG = "bus_t4";
 
 // Bumped when tagging a release; checked against the tag by CI
-static const char *VERSION = "1.3.4";
+static const char *VERSION = "1.3.5";
 
 // Break signal baud rate: sending 0x00 at 9200 baud produces a ~1ms low pulse
 // on a 19200 baud bus. Reference: pruwait/Nice_BusT4 nice-bust4.h
@@ -68,7 +68,10 @@ void BusT4Component::setup() {
     return;
   }
 
-  txQueue_ = xQueueCreate(32, sizeof(T4Frame));
+  // 64 frames: boot is the busiest moment - cover init steps, every register sensor's first
+  // poll and the restored template numbers all queue within a second, while the bus drains one
+  // frame per ~200 ms. 32 was measurably too shallow: 6 frames of the boot burst were dropped.
+  txQueue_ = xQueueCreate(64, sizeof(T4Frame));
   if (txQueue_ == nullptr) {
     ESP_LOGE(TAG, "Failed to create TX queue");
     vQueueDelete(rxQueue_);

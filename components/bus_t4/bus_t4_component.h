@@ -60,8 +60,14 @@ class BusT4Component final : public Component, public uart::UARTDevice {
   uint32_t get_rx_discarded() const { return rx_discarded_; }
   uint32_t get_tx_frames() const { return tx_frames_; }
   uint32_t get_tx_dropped() const { return tx_dropped_; }
+  uint32_t get_tx_not_ready() const { return tx_not_ready_; }
   void count_tx_frame() { tx_frames_++; }
   void count_tx_dropped() { tx_dropped_++; }
+  void count_tx_not_ready() { tx_not_ready_++; }
+
+  // False until setup() has created the queues: a device whose setup() runs first would
+  // otherwise queue into nothing, silently.
+  bool is_ready() const { return txQueue_ != nullptr; }
 
  private:
   // Receive and transmit share one task so a send can never land mid-frame
@@ -92,6 +98,7 @@ class BusT4Component final : public Component, public uart::UARTDevice {
   uint32_t rx_discarded_ = 0;
   uint32_t tx_frames_ = 0;
   uint32_t tx_dropped_ = 0;
+  uint32_t tx_not_ready_ = 0;
 };
 
 } // namespace esphome::bus_t4
