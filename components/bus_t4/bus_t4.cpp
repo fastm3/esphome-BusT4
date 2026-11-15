@@ -10,10 +10,10 @@ bool BusT4Device::queue_packet_(T4Packet *packet) {
   // with a zero-tick wait the queue simply overflowed.
   static constexpr TickType_t TX_QUEUE_WAIT = pdMS_TO_TICKS(30);
 
-  if (this->write(packet, TX_QUEUE_WAIT)) {
-    this->parent_->count_tx_frame();
+  // A queued frame is counted by the bus task when it is actually transmitted; counting it
+  // here as well made get_tx_frames() report about twice the real number.
+  if (this->write(packet, TX_QUEUE_WAIT))
     return true;
-  }
 
   if (!this->parent_->is_ready()) {
     // The bus component's setup() has not created the queues yet: a device that sends during

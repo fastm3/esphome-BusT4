@@ -13,7 +13,7 @@ namespace esphome::bus_t4 {
 static const char *TAG = "bus_t4";
 
 // Bumped when tagging a release; checked against the tag by CI
-static const char *VERSION = "1.3.5";
+static const char *VERSION = "1.3.6";
 
 // Break signal baud rate: sending 0x00 at 9200 baud produces a ~1ms low pulse
 // on a 19200 baud bus. Reference: pruwait/Nice_BusT4 nice-bust4.h
@@ -29,6 +29,16 @@ static constexpr uint32_t BUS_IDLE_MS = 100;
 // complete, and the parser has to resynchronise or the bus deadlocks (see busTask).
 static constexpr uint32_t FRAME_TIMEOUT_MS = 50;
 
+// How long the line must stay silent before a discarded frame is considered over. The break
+// in front of a frame cannot be recognised in the byte stream: the UART delivers it as a 0x00,
+// and 0x00 also appears in almost every frame (addresses, status bytes), so resynchronising on
+// a 0x00 restarted the sync search in the middle of the very frame being discarded. Silence is
+// the only reliable frame boundary. One byte takes 0.52 ms, but bytes reach the driver in
+// bursts - the RX FIFO is handed over at 18 bytes or after a 2-symbol timeout, i.e. up to
+// ~9.4 ms - so a gap shorter than that can occur inside a frame. 15 ms is above it and still
+// well below FRAME_TIMEOUT_MS.
+static constexpr uint32_t DISCARD_SILENCE_MS = 15;
+
 // Bounded so a busy bus cannot starve the transmit path
 static constexpr uint8_t RX_DRAIN_LIMIT = 64;
 
@@ -36,10 +46,10 @@ static constexpr TickType_t TX_MIN_INTERVAL = pdMS_TO_TICKS(100);
 
 namespace {
 
-// Parser states. DISCARD swallows the rest of a frame that failed a checksum check instead of
+// Parser states. DISCARD swallows the rest of a frame that failed a check instead of
 // resynchronising in the middle of it, where a payload 0x55 would be taken for a sync byte
 // and the byte after it for a length - and the parser would then wait for bytes that never
-// come, with the transmit gate shut behind it.
+// come, with the transmit gate shut behind it. It ends on line silence (DISCARD_SILENCE_MS).
 enum RxState : uint8_t { WAIT_SYNC, RX_SIZE, RX_DATA, TRAILING_SIZE, DISCARD };
 
 const char *rx_state_name(RxState state) {
@@ -169,12 +179,8 @@ void BusT4Component::busTask() {
           break;
 
         case DISCARD:
-          // Every frame starts after a break, so a 0x00 is the natural place to pick the
-          // stream up again. The deadline covers the case where it never comes.
-          if (byte == T4_BREAK) {
-            ESP_LOGD(TAG, "Resynchronised on a break after discarding a frame");
-            rx_state = WAIT_SYNC;
-          }
+          // Drop everything until the line goes quiet (checked after this loop). Do not look
+          // for a break here: it arrives as 0x00, which is ordinary payload too.
           break;
 
         case TRAILING_SIZE:
@@ -229,6 +235,23 @@ void BusT4Component::busTask() {
     // arrives to resynchronise on, and the link deadlocks until the gate is moved by other
     // means - a remote, for instance. That is why commands can be ignored for hours while
     // Home Assistant still reaches the device.
+    // End of a discarded frame: the line has been quiet long enough for it to be over.
+    if (rx_state == DISCARD && millis() - last_rx_ms >= DISCARD_SILENCE_MS) {
+      ESP_LOGD(TAG, "Line quiet after a discarded frame, resynchronising");
+      rx_state = WAIT_SYNC;
+      expected_size = 0;
+      packet.size = 0;
+    }
+
+    // DISCARD does not push the deadline back, so on a bus that never goes quiet it still ends
+    // here; it was already counted when it was entered, so it is not counted twice.
+    if (rx_state == DISCARD && (int32_t) (millis() - rx_deadline_ms) >= 0) {
+      ESP_LOGW(TAG, "Bus never went quiet after a discarded frame, resynchronising anyway");
+      rx_state = WAIT_SYNC;
+      expected_size = 0;
+      packet.size = 0;
+    }
+
     if (rx_state != WAIT_SYNC && (int32_t) (millis() - rx_deadline_ms) >= 0) {
       ESP_LOGW(TAG, "Discarding incomplete frame (state=%s, expected=%u, got=%u): %s",
                rx_state_name(rx_state), (unsigned) expected_size, (unsigned) packet.size,

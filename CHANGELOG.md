@@ -4,6 +4,21 @@ All notable changes to this fork. The base is
 [`makstech/esphome-BusT4`](https://github.com/makstech/esphome-BusT4) v1.2.2;
 see [Releases](https://github.com/makstech/esphome-BusT4/releases) for the upstream history.
 
+## v1.3.6 — discarded frames really end on silence, and corrected counters
+
+- **`DISCARD` no longer resynchronises on a `0x00`.** v1.3.4 left that state on "the next
+  break", but the UART delivers a break as a plain `0x00`, and `0x00` also appears in almost
+  every frame (addresses, status bytes). The parser therefore left `DISCARD` at the first
+  `0x00` of the rest of the bad frame and restarted the sync search mid-frame - the very case
+  the state was meant to prevent. It only recovered on the 50 ms deadline. `DISCARD` now ends
+  when the line has been silent for 15 ms (bytes reach the driver in bursts of up to ~9.4 ms,
+  so a shorter gap can occur inside a frame), with the 50 ms deadline kept for a bus that never
+  goes quiet.
+- **`get_tx_frames()` counted every frame twice** - once when queued, once when sent. It now
+  counts frames actually transmitted.
+- **The counters are `std::atomic`.** The bus task and the main loop update them, and `++` on a
+  plain `uint32_t` can lose increments across tasks.
+
 ## v1.3.5 — dropped frames at boot, and an encoder that could be missed for good
 
 Both were exposed by the counters added in v1.3.4, on the first boot that had them: the device
@@ -49,7 +64,8 @@ and the WiFi were fine; the bus was deaf.
   instead of resynchronising in the middle of the frame still arriving - where a payload
   `0x55` is taken for a sync byte and the byte after it for a length, which is the most likely
   way into the stuck state in the first place. `DISCARD` leaves on the next break, or on the
-  same 50 ms deadline, so it recovers even on a bus that never goes quiet.
+  same 50 ms deadline, so it recovers even on a bus that never goes quiet. (The "next break"
+  exit did not work - a break reads as an ordinary `0x00`; fixed in v1.3.6.)
 - Frames that cannot be queued are no longer lost silently. Every send path called
   `write(&packet, 0)` and dropped the result, so a full transmit queue (32 frames) swallowed
   commands with no trace in the log. It is now counted and logged with the target and command.
