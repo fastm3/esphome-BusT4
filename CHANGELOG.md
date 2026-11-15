@@ -4,6 +4,36 @@ All notable changes to this fork. The base is
 [`makstech/esphome-BusT4`](https://github.com/makstech/esphome-BusT4) v1.2.2;
 see [Releases](https://github.com/makstech/esphome-BusT4/releases) for the upstream history.
 
+## v1.3.4 — the parser can no longer deadlock the bus
+
+Reported by another fork on a Robus RBS600, then confirmed here: the transmit path only runs
+while the receive parser is in `WAIT_SYNC`. A frame that stopped arriving mid-way left the
+parser in `DATA` / `TRAILING_SIZE` for ever, so nothing was polled - and with nothing polled,
+the control unit had no reason to talk, so nothing could resynchronise it. The link stayed
+dead until the gate was moved by other means (a remote), whose traffic completes the stuck
+frame. From Home Assistant it looked like a device that answers but ignores commands.
+
+The evidence on the reference unit is in its history: the cover went from `closed` to `open`
+without ever reporting an `opening` transition, across a window of about 10 h 30 in which the
+device stayed connected to Home Assistant the whole time (no `unavailable` entry). So the API
+and the WiFi were fine; the bus was deaf.
+
+- A frame that has not completed within 50 ms is abandoned. The largest frame is 63 bytes
+  (32.8 ms at 19200 8N1) and arrives without gaps, so a 50 ms gap can only mean the frame will
+  never complete. The parser returns to `WAIT_SYNC` and the transmit gate reopens, which
+  breaks the deadlock without waiting for someone to move the gate.
+- A frame that fails the trailing-size, header or payload check now enters a `DISCARD` state
+  instead of resynchronising in the middle of the frame still arriving - where a payload
+  `0x55` is taken for a sync byte and the byte after it for a length, which is the most likely
+  way into the stuck state in the first place. `DISCARD` leaves on the next break, or on the
+  same 50 ms deadline, so it recovers even on a bus that never goes quiet.
+- Frames that cannot be queued are no longer lost silently. Every send path called
+  `write(&packet, 0)` and dropped the result, so a full transmit queue (32 frames) swallowed
+  commands with no trace in the log. It is now counted and logged with the target and command.
+- New counters for YAML: `get_rx_discarded()`, `get_tx_dropped()`, `get_tx_frames()` and
+  `get_rx_packets()`, so a link problem becomes an entity instead of a guess. `example.yaml`
+  exposes three of them as diagnostic template sensors.
+
 ## v1.3.3 — the previous manoeuvre's acknowledgement is not the end of this one
 
 On an MC824H a command is answered ~50 ms later by a DEP status of `STA_ENDTIME` (`0x06`,

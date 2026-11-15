@@ -62,6 +62,11 @@ class BusT4Device {
   void set_target_address(T4Source addr) { target_address_ = addr; }
 
  protected:
+  // Queue one already-built packet and account for it.
+  // A full transmit queue used to drop the frame without a trace: the caller looked hung and
+  // Home Assistant saw a command that never reached the gate.
+  bool queue_packet_(T4Packet *packet);
+
   BusT4Component *parent_{nullptr};
   T4Source target_address_{0x00, 0x03};  // Default motor controller address
 };

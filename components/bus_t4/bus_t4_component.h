@@ -52,6 +52,17 @@ class BusT4Component final : public Component, public uart::UARTDevice {
   // Register a device to receive packet callbacks
   void register_device(BusT4Device *device) { devices_.push_back(device); }
 
+  // Bus link health. A growing `rx_discarded` is the signature of a frame that lost
+  // synchronisation, which shut the transmit gate until it was recovered; a growing
+  // `tx_dropped` means frames were lost because the transmit queue was full. Both used to
+  // be silent, and both look like "Home Assistant answers, the gate ignores commands".
+  uint32_t get_rx_packets() const { return rx_packets_; }
+  uint32_t get_rx_discarded() const { return rx_discarded_; }
+  uint32_t get_tx_frames() const { return tx_frames_; }
+  uint32_t get_tx_dropped() const { return tx_dropped_; }
+  void count_tx_frame() { tx_frames_++; }
+  void count_tx_dropped() { tx_dropped_++; }
+
  private:
   // Receive and transmit share one task so a send can never land mid-frame
   void busTask();
@@ -74,6 +85,13 @@ class BusT4Component final : public Component, public uart::UARTDevice {
 
   // Cached UART port for direct baud rate register writes during break signal.
   uart_port_t uart_num_ = UART_NUM_MAX;
+
+  // Updated by the bus task, read from the main loop. Plain 32-bit stores are atomic on the
+  // ESP32, and a value that is one poll interval stale is harmless for a counter.
+  uint32_t rx_packets_ = 0;
+  uint32_t rx_discarded_ = 0;
+  uint32_t tx_frames_ = 0;
+  uint32_t tx_dropped_ = 0;
 };
 
 } // namespace esphome::bus_t4

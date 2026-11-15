@@ -13,7 +13,7 @@ namespace esphome::bus_t4 {
 static const char *TAG = "bus_t4";
 
 // Bumped when tagging a release; checked against the tag by CI
-static const char *VERSION = "1.3.3";
+static const char *VERSION = "1.3.4";
 
 // Break signal baud rate: sending 0x00 at 9200 baud produces a ~1ms low pulse
 // on a 19200 baud bus. Reference: pruwait/Nice_BusT4 nice-bust4.h
@@ -22,10 +22,43 @@ static constexpr uint32_t T4_BAUD_BREAK = 9200;
 // Observed request-to-reply latency on a shared bus reaches ~55ms
 static constexpr uint32_t BUS_IDLE_MS = 100;
 
+// How long a frame under assembly may stall before it is abandoned. A complete frame is
+// SYNC + length + at most 60 payload bytes + length = 63 bytes sent back to back, i.e.
+// 63 x 10 bits at 19200 8N1 = 32.8 ms, and the break in front of it adds ~1 ms. A 50 ms gap
+// therefore cannot happen inside a frame that is still coming: it means the frame will never
+// complete, and the parser has to resynchronise or the bus deadlocks (see busTask).
+static constexpr uint32_t FRAME_TIMEOUT_MS = 50;
+
 // Bounded so a busy bus cannot starve the transmit path
 static constexpr uint8_t RX_DRAIN_LIMIT = 64;
 
 static constexpr TickType_t TX_MIN_INTERVAL = pdMS_TO_TICKS(100);
+
+namespace {
+
+// Parser states. DISCARD swallows the rest of a frame that failed a checksum check instead of
+// resynchronising in the middle of it, where a payload 0x55 would be taken for a sync byte
+// and the byte after it for a length - and the parser would then wait for bytes that never
+// come, with the transmit gate shut behind it.
+enum RxState : uint8_t { WAIT_SYNC, RX_SIZE, RX_DATA, TRAILING_SIZE, DISCARD };
+
+const char *rx_state_name(RxState state) {
+  switch (state) {
+    case WAIT_SYNC:
+      return "WAIT_SYNC";
+    case RX_SIZE:
+      return "SIZE";
+    case RX_DATA:
+      return "DATA";
+    case TRAILING_SIZE:
+      return "TRAILING_SIZE";
+    case DISCARD:
+      return "DISCARD";
+  }
+  return "UNKNOWN";
+}
+
+}  // namespace
 
 void BusT4Component::setup() {
   rxQueue_ = xQueueCreate(32, sizeof(T4Packet));
@@ -91,8 +124,12 @@ void BusT4Component::busTask() {
   // Protocol format: [BREAK] SYNC SIZE DATA[N] SIZE
   // The size byte is sent twice (start and end), no separate checksum byte.
   // Internal checksums are within the DATA portion.
-  enum { WAIT_SYNC = 0, SIZE, DATA, TRAILING_SIZE } rx_state = WAIT_SYNC;
+  RxState rx_state = WAIT_SYNC;
   uint32_t last_rx_ms = 0;
+  // When the frame under assembly is given up on. Every byte received while not discarding
+  // pushes it back; inside DISCARD nothing does, so the parser always recovers, even on a bus
+  // that never goes quiet.
+  uint32_t rx_deadline_ms = 0;
   TickType_t last_tx_time = 0;
 
   for (;;) {
@@ -101,29 +138,40 @@ void BusT4Component::busTask() {
     while (drained < RX_DRAIN_LIMIT && parent_->available() && parent_->read_byte(&byte) == true) {
       drained++;
       last_rx_ms = millis();
+      if (rx_state != DISCARD)
+        rx_deadline_ms = millis() + FRAME_TIMEOUT_MS;
       switch (rx_state) {
         case WAIT_SYNC:
           // Wait for SYNC byte (0x55), ignore break bytes (0x00) and others
           if (byte == T4_SYNC) {
-            rx_state = SIZE;
+            rx_state = RX_SIZE;
           }
           break;
 
-        case SIZE:
+        case RX_SIZE:
           if (byte > 0 && byte <= 60) {
             expected_size = byte;
             packet.size = 0;
-            rx_state = DATA;
+            rx_state = RX_DATA;
           } else {
             // Invalid size, go back to waiting for sync
             rx_state = WAIT_SYNC;
           }
           break;
 
-        case DATA:
+        case RX_DATA:
           packet.data[packet.size++] = byte;
           if (packet.size == expected_size)
             rx_state = TRAILING_SIZE;
+          break;
+
+        case DISCARD:
+          // Every frame starts after a break, so a 0x00 is the natural place to pick the
+          // stream up again. The deadline covers the case where it never comes.
+          if (byte == T4_BREAK) {
+            ESP_LOGD(TAG, "Resynchronised on a break after discarding a frame");
+            rx_state = WAIT_SYNC;
+          }
           break;
 
         case TRAILING_SIZE:
@@ -135,7 +183,8 @@ void BusT4Component::busTask() {
               ESP_LOGW(TAG, "Header checksum mismatch: expected 0x%02X, got 0x%02X: %s",
                        header_check, packet.data[6],
                        format_hex_pretty(packet.data, packet.size).c_str());
-              rx_state = WAIT_SYNC;
+              rx_discarded_++;
+              rx_state = DISCARD;
               break;
             }
 
@@ -149,23 +198,43 @@ void BusT4Component::busTask() {
                 ESP_LOGW(TAG, "Payload checksum mismatch: expected 0x%02X, got 0x%02X: %s",
                          payload_check, packet.data[packet.size - 1],
                          format_hex_pretty(packet.data, packet.size).c_str());
-                rx_state = WAIT_SYNC;
+                rx_discarded_++;
+                rx_state = DISCARD;
                 break;
               }
             }
 
             // Both checksums valid - accept packet
+            rx_packets_++;
             ESP_LOGD(TAG, "Received packet: %s (%d bytes)",
                      format_hex_pretty(packet.data, packet.size).c_str(), packet.size);
             if (!xQueueSend(rxQueue_, &packet, pdMS_TO_TICKS(100))) {
               ESP_LOGW(TAG, "RX queue full, dropping packet");
             }
+            rx_state = WAIT_SYNC;
           } else {
             ESP_LOGW(TAG, "Trailing size mismatch: expected 0x%02X, got 0x%02X", expected_size, byte);
+            rx_discarded_++;
+            rx_state = DISCARD;
           }
-          rx_state = WAIT_SYNC;
           break;
       }
+    }
+
+    // A frame that stopped arriving will never complete, and while the parser is not in
+    // WAIT_SYNC the transmit gate below stays shut. Nothing is polled then, so no reply ever
+    // arrives to resynchronise on, and the link deadlocks until the gate is moved by other
+    // means - a remote, for instance. That is why commands can be ignored for hours while
+    // Home Assistant still reaches the device.
+    if (rx_state != WAIT_SYNC && (int32_t) (millis() - rx_deadline_ms) >= 0) {
+      ESP_LOGW(TAG, "Discarding incomplete frame (state=%s, expected=%u, got=%u): %s",
+               rx_state_name(rx_state), (unsigned) expected_size, (unsigned) packet.size,
+               format_hex_pretty(packet.data, packet.size).c_str());
+      rx_discarded_++;
+      rx_state = WAIT_SYNC;
+      expected_size = 0;
+      packet.size = 0;
+      last_rx_ms = millis();  // keep the transmit gate shut for BUS_IDLE_MS
     }
 
     // Transmit only between frames, and only once the bus has gone quiet
@@ -187,6 +256,7 @@ void BusT4Component::busTask() {
         parent_->write_array(frame.data, frame.size);
         parent_->flush();
 
+        tx_frames_++;
         last_tx_time = xTaskGetTickCount();
       }
     }

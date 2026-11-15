@@ -201,3 +201,31 @@ sensor:
     accuracy_decimals: 0
     update_interval: 60s
 
+  # Bus link health. Both counters used to be silent, and both produce the same report from
+  # Home Assistant: "the gate ignores my commands". A rising `frames discarded` is the parser
+  # abandoning a frame (from v1.3.4 it recovers by itself instead of blocking the bus);
+  # `frames dropped` means frames were lost because the transmit queue was full.
+  - platform: template
+    name: "Bus frames discarded"
+    icon: mdi:counter
+    entity_category: diagnostic
+    update_interval: 60s
+    accuracy_decimals: 0
+    lambda: 'return id(bus).get_rx_discarded();'
+
+  - platform: template
+    name: "Bus frames dropped (TX queue full)"
+    icon: mdi:counter
+    entity_category: diagnostic
+    update_interval: 60s
+    accuracy_decimals: 0
+    lambda: 'return id(bus).get_tx_dropped();'
+
+  - platform: template
+    name: "Bus packets received"
+    icon: mdi:counter
+    entity_category: diagnostic
+    update_interval: 60s
+    accuracy_decimals: 0
+    lambda: 'return id(bus).get_rx_packets();'
+
