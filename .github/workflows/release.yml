@@ -44,12 +44,27 @@ jobs:
             exit 0
           fi
 
+          notes="docs/release-notes/${tag}.md"
+
+          # A draft for this tag may already exist: release-drafter (inherited from upstream)
+          # creates one on every push to main and resolves the next version from the last
+          # published release. `gh release view` sees drafts, so an existence check alone would
+          # answer "already exists" and leave that draft unpublished for ever. Publishing it
+          # here is what we want, with the curated notes when there are some.
           if gh release view "$tag" >/dev/null 2>&1; then
-            echo "release $tag already exists, nothing to do"
+            if [ "$(gh release view "$tag" --json isDraft --jq .isDraft)" = "true" ]; then
+              echo "publishing the draft that already exists for $tag"
+              if [ -f "$notes" ]; then
+                gh release edit "$tag" --draft=false --title "$tag" --notes-file "$notes"
+              else
+                gh release edit "$tag" --draft=false --title "$tag"
+              fi
+              exit 0
+            fi
+            echo "release $tag already published, nothing to do"
             exit 0
           fi
 
-          notes="docs/release-notes/${tag}.md"
           if [ -f "$notes" ]; then
             echo "using curated notes: $notes"
             gh release create "$tag" --title "$tag" --notes-file "$notes" --verify-tag
